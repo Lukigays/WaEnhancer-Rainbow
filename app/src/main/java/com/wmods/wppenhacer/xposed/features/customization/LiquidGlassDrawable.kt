@@ -264,6 +264,12 @@ class GlassLensView(context: Context) : View(context) {
         val startX = translationX
         val startAnchor = this.anchorXInBar
         val targetAnchor = anchorXInBar
+        // Already at the target: settle instantly, never pulse while idle.
+        if (Math.abs(targetX - startX) < 2f) {
+            this.anchorXInBar = targetAnchor
+            requestCapture(false)
+            return
+        }
         val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = SLIDE_DURATION_MS
             interpolator = DecelerateInterpolator(1.8f)

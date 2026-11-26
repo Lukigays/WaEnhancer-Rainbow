@@ -91,10 +91,11 @@ class CustomView(loader: ClassLoader, preferences: SharedPreferences) :
         val filterItens = xprefs.getString("css_theme", "") ?: ""
         val folderTheme = xprefs.getString("folder_theme", "") ?: ""
         val customCss = xprefs.getString("custom_css", "") ?: ""
+        val bundledCss = if (xprefs.getBoolean("ios_layout", false)) loadBundledCss() else ""
 
         if ((TextUtils.isEmpty(filterItens) && TextUtils.isEmpty(folderTheme) && TextUtils.isEmpty(
                 customCss
-            ))
+            ) && TextUtils.isEmpty(bundledCss))
             || !xprefs.getBoolean("custom_filters", true)
         ) return
 
@@ -106,7 +107,7 @@ class CustomView(loader: ClassLoader, preferences: SharedPreferences) :
         }
 
         themeDir = File(ThemePreference.rootDirectory, folderTheme)
-        val cssContent = "$filterItens\n$customCss"
+        val cssContent = "$bundledCss\n$filterItens\n$customCss"
         cacheImages = DrawableCache(Utils.application, 100 * 1024 * 1024)
 
         var waVersion = ""
@@ -1332,6 +1333,16 @@ class CustomView(loader: ClassLoader, preferences: SharedPreferences) :
 
     companion object {
         private var themeDir: File? = null
+
+        // Bundled iOS Home Layout CSS (assets/ios_layout.css), applied when the
+        // "ios_layout" preference is enabled.
+        @JvmStatic
+        private fun loadBundledCss(): String {
+            return runCatching {
+                Utils.application.assets.open("ios_layout.css").bufferedReader().use { it.readText() }
+            }.getOrDefault("")
+        }
+
         private fun changeDPI(
             activity: Activity,
             xprefs: SharedPreferences,

@@ -2,6 +2,11 @@ WaEnhancer-Rainbow — fork of WaEnhancer (by Dev4Mod) maintained by Lukigays
 Updates now follow THIS repository only: https://github.com/Lukigays/WaEnhancer-Rainbow/releases/latest
 
 [FIXED]
+* Liquid Glass lens: removed the idle grow/shrink pulse — the lens is now completely still when not being dragged, and only stretches while actually sliding to another tab
+[NEW]
+* New "iOS Home Layout" toggle (Customization): rounded pill search bar, roomier chat rows and a header that blends into the list, like iOS WhatsApp (restart WhatsApp after toggling)
+
+[FIXED]
 * iOS Chat Style: long-press on a message works again (the iOS bubble drawable now keeps the original padding that WhatsApp needs to anchor the context menu / reaction bar)
 * iOS Chat Style: removed the dark corner artifacts on media bubbles (the border drawable is now the same aligned rounded capsule)
 * Version number now increases with every build (1.6.7, 1.6.8, ...) and APK updates still install directly over previous builds

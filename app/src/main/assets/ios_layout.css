@@ -1,0 +1,19 @@
+/* iOS Home Layout - WaEnhancer-Rainbow
+   Applied by the CustomView engine when "iOS Home Layout" is enabled.
+   Only targets stable WhatsApp resource IDs; unknown ids are ignored safely. */
+
+/* Search bar: fully rounded pill like iOS WhatsApp */
+#my_search_bar {
+    border-radius: 28px;
+    margin: 4px 10px 4px 10px;
+}
+
+/* Chat rows: a touch more breathing room, iOS-like spacing */
+#conversations_row_content {
+    padding: 6px 10px 6px 10px;
+}
+
+/* Header blends into the list like iOS large-title screens */
+#toolbar_container {
+    background: none;
+}

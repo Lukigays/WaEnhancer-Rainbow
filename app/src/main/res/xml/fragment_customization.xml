@@ -176,6 +176,11 @@
             app:key="ios_style"
             app:summary="@string/ios_style_sum"
             app:title="@string/ios_style" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:key="ios_layout"
+            app:summary="@string/ios_layout_sum"
+            app:title="@string/ios_layout" />
     </PreferenceCategory>
 
     <PreferenceCategory
