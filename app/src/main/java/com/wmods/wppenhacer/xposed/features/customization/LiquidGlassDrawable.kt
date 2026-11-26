@@ -12,7 +12,6 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Matrix
-import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -28,16 +27,17 @@ import android.view.animation.DecelerateInterpolator
 import kotlin.math.min
 
 /**
- * iOS 26 "Liquid Glass" look, exactly like the iPhone photo:
+ * iOS 26 "Liquid Glass" look, exactly like the reference photos:
  *
  *  - [LiquidGlassBarDrawable]: the navigation bar itself. Plain dark frosted
- *    glass with a soft specular sheen and a faint rim. No rainbow here.
+ *    glass with a soft specular sheen and a faint rim. No colors at all.
  *  - [GlassLensView]: the floating selection lens that slides over the active
- *    tab. It MAGNIFIES the real content beneath it (real refraction, drawn by
- *    re-rendering the bar into a bitmap and drawing it back scaled up, clipped
- *    to the lens), bulges out of the bar silhouette, carries a thick dark
- *    inner ring, bright top/bottom rims and a subtle iridescent chromatic
- *    fringe with tiny color glints - like light dispersing on a glass edge.
+ *    tab. Neutral clear glass: it MAGNIFIES the real content beneath it
+ *    (refraction), carries a thick dark inner ring, bright top/bottom rims,
+ *    a soft drop shadow and a subtle white sheen. No rainbow, no colors.
+ *    The lens never animates on its own: it moves only when the selection
+ *    changes (tapping a tab) or when the user drags across the tab bar,
+ *    then settles on the selected tab.
  */
 
 class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, cornerRadiusPx: Float) :
@@ -127,7 +127,7 @@ class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, co
         canvas.drawPath(path, rimPaint)
     }
 
-    override fun getOutline(outline: Outline) {
+    override fun getOutline(outline: android.graphics.Outline) {
         outline.setRoundRect(
             bounds, min(cornerRadiusPx, min(bounds.width(), bounds.height()) / 2f)
         )
@@ -155,18 +155,16 @@ class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, co
 }
 
 /**
- * The magnifying selection lens. Re-renders the bar into an offscreen bitmap
- * and draws it back magnified inside the capsule, so the tab content under
- * the lens is really magnified like the iPhone Liquid Glass photo.
+ * The magnifying selection lens. Neutral iOS glass: no rainbow, no colors.
+ * Re-renders the bar into an offscreen bitmap and draws it back magnified
+ * inside the capsule, so the tab content under the lens is really magnified.
+ * It only moves when the selection changes or while the user drags it.
  */
 class GlassLensView(context: Context) : View(context) {
 
-    var rainbowEnabled = true
-    var rainbowIntensity = 0.5f
-    var magnification = 1.32f
-
     // Padding inside this view around the capsule, reserved for the outer glow.
     var glowPadPx = 6f
+    var magnification = 1.32f
 
     private var bar: ViewGroup? = null
 
@@ -193,8 +191,6 @@ class GlassLensView(context: Context) : View(context) {
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val fringePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val glintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val depthPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -294,6 +290,25 @@ class GlassLensView(context: Context) : View(context) {
         anim.start()
     }
 
+    /** Direct positioning while the user drags across the bar: no animation at
+     *  all, the glass simply follows the finger and the magnified content
+     *  scrolls beneath it. minX/maxX clamp the capsule inside the bar. */
+    fun dragTo(centerX: Float, centerY: Float, anchorXInBar: Float, minX: Float, maxX: Float) {
+        slideAnim?.cancel()
+        translationY = centerY - height / 2f
+        translationX = (centerX - width / 2f).coerceIn(minX, maxX)
+        this.anchorXInBar = anchorXInBar
+        this.anchorYInBar = bar?.height?.div(2f) ?: anchorYInBar
+        requestCapture(true)
+    }
+
+    /** Cancels any running slide animation and resets the jelly scale. */
+    fun cancelSlide() {
+        slideAnim?.cancel()
+        scaleX = 1f
+        scaleY = 1f
+    }
+
     override fun onDraw(canvas: Canvas) {
         val w = width
         val h = height
@@ -304,23 +319,16 @@ class GlassLensView(context: Context) : View(context) {
         capsulePath.reset()
         capsulePath.addRoundRect(capsule, radius, radius, Path.Direction.CW)
 
-        val intensity = rainbowIntensity.coerceIn(0f, 1f)
-
-        // Soft outer glow / ambient shadow around the capsule.
+        // Soft outer halo around the capsule.
         glowPaint.style = Paint.Style.STROKE
         glowPaint.shader = null
         glowPaint.color = Color.WHITE
-        glowPaint.alpha = 16
-        glowPaint.strokeWidth = glowPadPx * 1.4f
+        glowPaint.alpha = 14
+        glowPaint.strokeWidth = glowPadPx * 1.3f
         canvas.drawPath(capsulePath, glowPaint)
-        glowPaint.alpha = 22
-        glowPaint.strokeWidth = glowPadPx * 0.7f
+        glowPaint.alpha = 20
+        glowPaint.strokeWidth = glowPadPx * 0.6f
         canvas.drawPath(capsulePath, glowPaint)
-        if (rainbowEnabled) {
-            glowPaint.color = Color.argb((10 + intensity * 22).toInt(), 130, 200, 255)
-            glowPaint.strokeWidth = glowPadPx
-            canvas.drawPath(capsulePath, glowPaint)
-        }
 
         // Soft drop shadow under the lens (floating above the bar, like the photo).
         shadowPaint.style = Paint.Style.STROKE
@@ -340,7 +348,7 @@ class GlassLensView(context: Context) : View(context) {
         canvas.clipPath(capsulePath)
 
         // 1. Base glass tint (visible where the lens bulges past the bar).
-        fillPaint.color = Color.argb(24, 255, 255, 255)
+        fillPaint.color = Color.argb(22, 255, 255, 255)
         canvas.drawPaint(fillPaint)
 
         // 2. Magnified real content of the bar beneath the lens. The matrix maps the
@@ -359,11 +367,8 @@ class GlassLensView(context: Context) : View(context) {
             )
             canvas.drawBitmap(bmp, drawMatrix, bitmapPaint)
 
-            // Frosted veil so the glass looks milky like the iOS photo.
-            fillPaint.color = Color.argb(10, 255, 255, 255)
-            canvas.drawPaint(fillPaint)
-
-            // 3. Chromatic dispersion on the edge: red/blue split passes.
+            // 3. Neutral chromatic dispersion on the edge: monochrome red/blue split
+            //    (no colors visible, just the thick-glass blur at the rim).
             innerRect.set(capsule)
             innerRect.inset(2.5f, 2.5f)
             innerPath.reset()
@@ -372,15 +377,14 @@ class GlassLensView(context: Context) : View(context) {
             ringPath.op(capsulePath, innerPath, Path.Op.DIFFERENCE)
             val ringSave = canvas.save()
             canvas.clipPath(ringPath)
-            val ca = 0.9f + intensity * 1.2f
             chromaPaint.colorFilter = ColorMatrixColorFilter(redMatrix)
-            chromaPaint.alpha = (46 + intensity * 46).toInt()
+            chromaPaint.alpha = 26
             offsetMatrix.set(drawMatrix)
-            offsetMatrix.postTranslate(-ca, 0f)
+            offsetMatrix.postTranslate(-1.4f, 0f)
             canvas.drawBitmap(bmp, offsetMatrix, chromaPaint)
             chromaPaint.colorFilter = ColorMatrixColorFilter(blueMatrix)
             offsetMatrix.set(drawMatrix)
-            offsetMatrix.postTranslate(ca, 0f)
+            offsetMatrix.postTranslate(1.4f, 0f)
             canvas.drawBitmap(bmp, offsetMatrix, chromaPaint)
             canvas.restoreToCount(ringSave)
         }
@@ -419,33 +423,6 @@ class GlassLensView(context: Context) : View(context) {
         rimPaint.style = Paint.Style.STROKE
         rimPaint.strokeWidth = 2.2f
         canvas.drawPath(capsulePath, rimPaint)
-
-        // 7. Iridescent chromatic fringe: mint on top, pink/violet at the bottom.
-        if (rainbowEnabled) {
-            fringePaint.shader = LinearGradient(
-                0f, capsule.top, 0f, capsule.bottom,
-                intArrayOf(
-                    Color.argb((95 + intensity * 85).toInt(), 120, 235, 195),
-                    Color.TRANSPARENT,
-                    Color.TRANSPARENT,
-                    Color.argb((85 + intensity * 80).toInt(), 245, 130, 190)
-                ),
-                floatArrayOf(0f, 0.28f, 0.72f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            fringePaint.style = Paint.Style.STROKE
-            fringePaint.strokeWidth = 2f
-            canvas.drawPath(capsulePath, fringePaint)
-
-            // 8. Two small color glints on the edge (light dispersion spots).
-            glintPaint.style = Paint.Style.STROKE
-            glintPaint.shader = null
-            glintPaint.strokeWidth = 2.6f
-            glintPaint.color = Color.argb((95 + intensity * 75).toInt(), 150, 240, 210)
-            canvas.drawArc(capsule, 292f, 30f, false, glintPaint)
-            glintPaint.color = Color.argb((85 + intensity * 70).toInt(), 255, 140, 180)
-            canvas.drawArc(capsule, 112f, 30f, false, glintPaint)
-        }
 
         canvas.restoreToCount(save)
     }

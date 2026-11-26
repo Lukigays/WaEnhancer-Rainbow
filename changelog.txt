@@ -1,22 +1,12 @@
-[NEW]
-* New "iOS Chat Style" toggle (Customization > Conversation screen): replaces tailed WhatsApp bubbles with clean fully-rounded iOS-style capsules - outgoing teal green / incoming dark gray in dark mode, outgoing mint / incoming white in light mode
-* Floating Bottom Bar now has the full iOS "Liquid Glass" look from the iPhone photo: plain dark frosted glass bar, plus a floating selection lens that really MAGNIFIES the tab content beneath it (refraction) and SLIDES smoothly between tabs (content scrolls through the lens while it travels, with a jelly stretch while moving and a soft drop shadow); the lens bulges out of the bar, has a thick dark inner ring, bright rims and a subtle iridescent chromatic fringe; FABs become plain dark glass circles with a bright rim (Customization > Home screen > Rainbow Liquid Glass, with an intensity slider)
+WaEnhancer-Rainbow — fork of WaEnhancer (by Dev4Mod) maintained by Lukigays
+Updates now follow THIS repository only: https://github.com/Lukigays/WaEnhancer-Rainbow/releases/latest
 
-[NEW]
-* Added support for WhatsApp and WhatsApp Business 2.26.45.xx
-* Custom Privacy now uses a dropdown for each option (Default, Enabled, Disabled), showing the global state. Contacts are removed from the list when every option follows the global setting
-* Locked contacts are now hidden from the calls history, contact picker lists, status updates and status playback
-* "Remove sticker white outline" now also removes the outline from the sticker style and video frames
-* Disabling Meta AI now also turns off the remaining Meta AI features (search, voice, imagine, home tab, studio bots, assist and prompts)
+[NEW — FORK FEATURES]
+* Liquid Glass floating bottom bar (iOS style): plain dark frosted glass bar, plus a neutral selection lens that really MAGNIFIES the tab content beneath it (refraction), follows your finger while you drag across the tab bar (no animation while dragging), then slides with a jelly stretch to settle on the selected tab; thick dark inner ring, bright rims, soft drop shadow — no rainbow, no colors
+* FABs restyled as plain dark glass circles with a bright rim (like the separate search button in the iOS dock photo)
+* "iOS Chat Style" toggle (Customization > Conversation screen): rounded tail-less bubbles like iOS WhatsApp — outgoing teal green / incoming dark gray in dark mode, outgoing mint / incoming white in light mode
+* In-app updater rewritten to follow THIS fork's releases only and "Update Now" downloads the APK directly from the release assets
 
-[IMPROVED]
-* Faster startup and lower CPU usage while WhatsApp is running
-
-[FIXED]
-* Fixed high CPU usage in system_server on Android 11/12
-* Fixed root diagnostics freezing the app and the log dialog stopping before the run finished
-* Fixed contact verification failing on newer WhatsApp versions
-* Fixed keyboxes with a PKCS#8 private key not loading, and empty keybox entries causing errors
-* Fixed the text of selected chips blending into their background with the custom theme
-* Fixed the Home wallpaper transparency leaking into screens opened over it
-* Fixed contact names and original message references not loading on newer WhatsApp versions
+[RELEASE ENGINEERING]
+* Auto-release workflow: every push to master builds the APK and publishes it to GitHub Releases automatically
+* Fixed release keystore + versionCode/versionName bumped per build (1.6.6-build.<N>) so APK updates install directly over previous builds — no uninstall needed, data preserved

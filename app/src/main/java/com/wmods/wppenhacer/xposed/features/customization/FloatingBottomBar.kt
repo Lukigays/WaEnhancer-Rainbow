@@ -6,7 +6,9 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
@@ -250,7 +252,7 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         installPaddingGuard(bar)
 
         val rootView = container.parent as? FrameLayout
-        if (rootView != null) {
+        if (rootView != null && xprefs.getBoolean(PREF_RAINBOW, true)) {
             installSelectionLens(rootView, container, bar)
         }
     }
@@ -311,9 +313,6 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
 
         val lens = GlassLensView(menu.context)
         lens.bindBar(bar)
-        lens.rainbowEnabled = xprefs.getBoolean(PREF_RAINBOW, true)
-        lens.rainbowIntensity =
-            (xprefs.getInt(PREF_RAINBOW_INTENSITY, 50) / 100f).coerceIn(0.1f, 1f)
         lens.glowPadPx = Utils.dipToPixels(LENS_GLOW_PAD_DP).toFloat()
         ReflectionUtils.setAdditionalInstanceField(bar, KEY_LENS_VIEW, lens)
 
@@ -323,8 +322,59 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
             }
         }
 
-        // Never sync on ACTION_DOWN: the lens must always SLIDE to the new tab,
-        // never teleport. The watcher + menu layout listener drive the slide.
+        // iOS-style drag: the lens follows the finger across the tab bar with NO
+        // animation while dragging, then slides to settle on the selected tab
+        // when the finger lifts. Returns false so WhatsApp taps keep working.
+        val touchSlop = ViewConfiguration.get(menu.context).scaledTouchSlop
+        val dragState = floatArrayOf(0f, 0f) // startRawX, startLensCenterX
+        val dragging = booleanArrayOf(false)
+        for (i in 0 until menu.childCount) {
+            val item = menu.getChildAt(i) ?: continue
+            item.setOnTouchListener { v, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        lens.cancelSlide()
+                        dragState[0] = ev.rawX
+                        dragState[1] = lens.translationX + lens.width / 2f
+                        dragging[0] = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (lens.width > 0) {
+                            val dx = ev.rawX - dragState[0]
+                            if (!dragging[0] && Math.abs(dx) > touchSlop) dragging[0] = true
+                            if (dragging[0]) {
+                                val rootLoc = IntArray(2)
+                                rootView.getLocationInWindow(rootLoc)
+                                val menuLoc = IntArray(2)
+                                menu.getLocationInWindow(menuLoc)
+                                val barLoc = IntArray(2)
+                                bar.getLocationInWindow(barLoc)
+                                val menuLeft = menuLoc[0] - rootLoc[0]
+                                val menuRight = menuLeft + menu.width
+                                val half = lens.width / 2f
+                                val slack = lens.glowPadPx
+                                val center = (dragState[1] + dx).coerceIn(
+                                    menuLeft + half - slack, menuRight - half + slack
+                                )
+                                val centerY = barLoc[1] + bar.height / 2f - rootLoc[1]
+                                val anchor = center - (barLoc[0] - rootLoc[0])
+                                lens.dragTo(center, centerY, anchor, center - half, center + half)
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (dragging[0]) {
+                            dragging[0] = false
+                            v.postDelayed({
+                                syncLens(rootView, container, bar, menu, lens, null)
+                            }, 40L)
+                        }
+                    }
+                }
+                false
+            }
+        }
+
         // Lightweight watcher so the lens never drifts out of place.
         bar.post(object : Runnable {
             override fun run() {

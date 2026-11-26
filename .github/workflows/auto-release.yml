@@ -41,13 +41,14 @@ jobs:
             echo "No KEY_STORE secret -> using the committed waenhancer-release.keystore (fixed signature, updates install over)"
           fi
 
-      - name: Bump versionCode per build (so APK updates install over, no uninstall needed)
+      - name: Bump versionCode & versionName per build (so APK updates install over, no uninstall needed)
         run: |
           BASE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -n 1)
           NEW_CODE=$((BASE + GITHUB_RUN_NUMBER))
           sed -i -E "s/versionCode = [0-9]+/versionCode = $NEW_CODE/" app/build.gradle.kts
-          echo "versionCode: $BASE -> $NEW_CODE"
-          grep "versionCode" app/build.gradle.kts
+          sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"1.6.6-build.$GITHUB_RUN_NUMBER\"/" app/build.gradle.kts
+          echo "versionCode: $BASE -> $NEW_CODE | versionName -> 1.6.6-build.$GITHUB_RUN_NUMBER"
+          grep -E "versionCode|versionName" app/build.gradle.kts
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -58,10 +59,9 @@ jobs:
       - name: Prepare release tag
         id: prep
         run: |
-          VERSION=$(grep -oP 'versionName = "\K[0-9][^ "]*' app/build.gradle.kts | head -n 1)
-          TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+          TAG="v1.6.6-build.${GITHUB_RUN_NUMBER}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "title=WaEnhancer $TAG — Rainbow Liquid Glass" >> "$GITHUB_OUTPUT"
+          echo "title=WaEnhancer $TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2

@@ -27,6 +27,7 @@ import com.highcapable.yukihookapi.YukiHook
 import com.wmods.wppenhacer.App
 import com.wmods.wppenhacer.BuildConfig
 import com.wmods.wppenhacer.R
+import com.wmods.wppenhacer.UpdateChecker
 import com.wmods.wppenhacer.adapter.LogLineAdapter
 import com.wmods.wppenhacer.databinding.DialogDiagnosticsLogBinding
 import com.wmods.wppenhacer.databinding.FragmentHomeBinding
@@ -126,7 +127,7 @@ class HomeFragment : BaseFragment() {
 
         binding.updateCard.setOnClickListener { view ->
             animateClick(view)
-            Utils.openLink(requireActivity(), "https://t.me/waenhancher")
+            Utils.openLink(requireActivity(), "https://github.com/Lukigays/WaEnhancer-Rainbow/releases/latest")
         }
 
         binding.diagBtn.setOnClickListener { view ->
@@ -517,7 +518,7 @@ class HomeFragment : BaseFragment() {
                     .build()
 
                 val request = Request.Builder()
-                    .url("https://api.github.com/repos/Dev4Mod/WaEnhancer/releases/latest")
+                    .url("https://api.github.com/repos/Lukigays/WaEnhancer-Rainbow/releases/latest")
                     .build()
 
                 client.newCall(request).execute().use { response ->
@@ -536,10 +537,10 @@ class HomeFragment : BaseFragment() {
                         return@use
                     }
 
-                    val parts = tagName.split("-")
-                    val hash = if (parts.size > 1) parts[1].trim() else ""
-                    val isNewVersion = hash.isNotEmpty() && !BuildConfig.VERSION_NAME.lowercase()
-                        .contains(hash.lowercase().trim())
+                    // Tags are "v1.6.6-build.<N>"; versionName mirrors "1.6.6-build.<N>".
+                    val latestBuild = UpdateChecker.parseBuildNumber(tagName)
+                    val currentBuild = UpdateChecker.parseBuildNumber(BuildConfig.VERSION_NAME)
+                    val isNewVersion = latestBuild > 0 && latestBuild > currentBuild
 
                     updateCardState(
                         success = true,
