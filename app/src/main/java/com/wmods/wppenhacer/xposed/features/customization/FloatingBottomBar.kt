@@ -1,20 +1,25 @@
 package com.wmods.wppenhacer.xposed.features.customization
 
+import android.animation.ValueAnimator
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.wmods.wppenhacer.xposed.core.Feature
 import com.wmods.wppenhacer.xposed.core.ViewHookDispatcher
+import com.wmods.wppenhacer.xposed.utils.ReflectionUtils
 import com.wmods.wppenhacer.xposed.utils.Utils
+import java.lang.reflect.Method
 import java.util.WeakHashMap
 
 class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
@@ -25,14 +30,34 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         private const val SIDE_MARGIN_DP = 12f
         private const val BOTTOM_MARGIN_DP = 16f
         private const val ELEVATION_DP = 4f
-        private const val BACKGROUND_ALPHA = 0.90f
-        private const val STROKE_ALPHA = 0.40f
         private const val FAB_GAP_DP = 8f
+
+        // Selection lens metrics (Liquid Glass, like the iPhone photo).
+        private const val LENS_INSET_DP = 7f      // glow space around the capsule
+        private const val LENS_ITEM_INSET_DP = 6f // capsule margin inside the item view
+        private const val LENS_MIN_H_DP = 30f
+        private const val LENS_MAX_H_DP = 40f
+        private const val LENS_SLIDE_MS = 320L
+        private const val LENS_WATCH_MS = 250L
+
+        private const val PREF_RAINBOW = "floating_bottom_bar_rainbow"
+        private const val PREF_RAINBOW_INTENSITY = "floating_bottom_bar_rainbow_intensity"
+
+        private const val KEY_BAR_LIGHT = "wae_floating_bar_light"
+        private const val KEY_LENS_INSTALLED = "wae_floating_lens_installed"
+        private const val KEY_LENS_PLACED = "wae_lens_placed"
+        private const val KEY_LENS_ANIM = "wae_lens_anim"
+        private const val KEY_FAB_GLASS = "wae_fab_glass"
+        private const val KEY_SEL_METHOD = "wae_sel_method"
+
         private val FAB_RESOURCE_NAMES = arrayOf("fab", "fab_second", "extended_mini_fab")
+        private const val MAX_LENS_ATTEMPTS = 3
+        private const val RETRY_DELAY_MS = 100L
     }
 
     private val processedBars = WeakHashMap<ViewGroup, Boolean>()
     private val setupAttempts = WeakHashMap<ViewGroup, Int>()
+    private val lensAttempts = WeakHashMap<ViewGroup, Int>()
     private val baseBottomPadding = WeakHashMap<ViewGroup, Int>()
     private val paddingGuarded = WeakHashMap<ViewGroup, Boolean>()
 
@@ -92,7 +117,7 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
             } else {
                 retrySetup(bar)
             }
-        }, 100L)
+        }, RETRY_DELAY_MS)
     }
 
     private fun ensureBarOverlay(bar: ViewGroup) {
@@ -177,7 +202,6 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         return lastFrameLayout
     }
 
-
     private fun applyTransparentShadowStyle(container: ViewGroup, bar: ViewGroup) {
         container.setBackgroundColor(Color.TRANSPARENT)
 
@@ -199,27 +223,18 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         }
 
         val barColor = resolveBarColor(bar)
-        val transparentColor = (barColor and 0x00FFFFFF) or
-                ((BACKGROUND_ALPHA * 255).toInt() shl 24)
-        val strokeColor = if (isLightColor(barColor)) {
-            Color.argb((STROKE_ALPHA * 255).toInt(), 0, 0, 0)
-        } else {
-            Color.argb((STROKE_ALPHA * 255).toInt(), 255, 255, 255)
-        }
+        val lightTheme = isLightColor(barColor)
+        ReflectionUtils.setAdditionalInstanceField(bar, KEY_BAR_LIGHT, lightTheme)
         val radiusDp =
             xprefs.getInt("floating_bottom_bar_radius", CORNER_RADIUS_DP.toInt()).toFloat()
         val radius = Utils.dipToPixels(radiusDp).toFloat()
 
-        val background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(
-                radius, radius, radius, radius,
-                radius, radius, radius, radius
-            )
-            setColor(transparentColor)
-            setStroke(Utils.dipToPixels(1.5f), strokeColor)
+        val existing = bar.background
+        if (existing is LiquidGlassBarDrawable) {
+            existing.updateStyle(barColor, radius)
+        } else {
+            bar.background = LiquidGlassBarDrawable(barColor, lightTheme, radius)
         }
-        bar.background = background
         bar.outlineProvider = ViewOutlineProvider.BACKGROUND
         bar.elevation = Utils.dipToPixels(ELEVATION_DP).toFloat()
 
@@ -238,6 +253,7 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
 
         stripBottomInset(bar)
         installPaddingGuard(bar)
+        installSelectionLens(bar)
     }
 
     private fun stripBottomInset(bar: ViewGroup) {
@@ -269,19 +285,193 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         }
     }
 
-    private fun positionFabsAboveBar(rootView: ViewGroup, container: ViewGroup) {
-        val barHeight = container.height
-        if (barHeight <= 0) {
-            container.postDelayed({ positionFabsAboveBar(rootView, container) }, 100L)
+    // ------------------------------------------------------------------
+    // Liquid Glass selection lens: a clear glass capsule with an iridescent
+    // rainbow fringe that slides over the active tab, like the iPhone photo.
+    // ------------------------------------------------------------------
+
+    private fun installSelectionLens(bar: ViewGroup) {
+        if (ReflectionUtils.getAdditionalInstanceField(bar, KEY_LENS_INSTALLED) != null) return
+        val menu = findMenuContainer(bar)
+        if (menu == null) {
+            val attempt = lensAttempts[bar] ?: 0
+            if (attempt >= MAX_LENS_ATTEMPTS) return
+            lensAttempts[bar] = attempt + 1
+            bar.postDelayed({ installSelectionLens(bar) }, RETRY_DELAY_MS)
+            return
+        }
+        ReflectionUtils.setAdditionalInstanceField(bar, KEY_LENS_INSTALLED, true)
+
+        // Hide the Material built-in active indicator: our lens replaces it.
+        runCatching {
+            val setter = bar.javaClass
+                .getMethod("setItemActiveIndicatorColor", android.content.res.ColorStateList::class.java)
+            setter.invoke(bar, android.content.res.ColorStateList.valueOf(Color.TRANSPARENT))
+        }.onFailure { logDebug("Unable to hide the native indicator", it) }
+
+        val lightTheme = ReflectionUtils.getAdditionalInstanceField(bar, KEY_BAR_LIGHT) as? Boolean ?: false
+        val inset = Utils.dipToPixels(LENS_INSET_DP)
+
+        val lens = View(menu.context)
+        lens.isClickable = false
+        lens.isFocusable = false
+        val drawable = GlassLensDrawable(lightTheme)
+        drawable.insetPx = inset.toFloat()
+        drawable.rimWidthPx = Utils.dipToPixels(2f).toFloat()
+        drawable.ringWidthPx = Utils.dipToPixels(2.5f).toFloat()
+        drawable.fringeWidthPx = Utils.dipToPixels(2f).toFloat()
+        drawable.glowWidthPx = Utils.dipToPixels(8f).toFloat()
+        drawable.rainbowEnabled = xprefs.getBoolean(PREF_RAINBOW, true)
+        drawable.rainbowIntensity =
+            (xprefs.getInt(PREF_RAINBOW_INTENSITY, 50) / 100f).coerceIn(0.1f, 1f)
+        lens.background = drawable
+
+        menu.addView(lens, 0, FrameLayout.LayoutParams(0, 0))
+        ReflectionUtils.setAdditionalInstanceField(lens, KEY_LENS_PLACED, false)
+
+        menu.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
+                syncLens(bar, menu, lens)
+            }
+        }
+
+        // Fast reaction to taps without touching WhatsApp's own listener.
+        menu.setOnTouchListener { v, ev ->
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                v.postDelayed({ syncLens(bar, menu, lens) }, 90L)
+            }
+            false
+        }
+
+        // Lightweight watcher so the lens never drifts out of place.
+        bar.post(object : Runnable {
+            override fun run() {
+                if (!bar.isAttachedToWindow) return
+                syncLens(bar, menu, lens)
+                bar.postDelayed(this, LENS_WATCH_MS)
+            }
+        })
+    }
+
+    private fun findMenuContainer(bar: ViewGroup): ViewGroup? {
+        // Material BottomNavigationView hosts its item views inside one menu child.
+        for (i in 0 until bar.childCount) {
+            val child = bar.getChildAt(i) as? ViewGroup ?: continue
+            if (child.childCount >= 2 && child.getChildAt(0) is ViewGroup) return child
+        }
+        // Fallback: items laid out directly in the bar.
+        var itemLike = 0
+        for (i in 0 until bar.childCount) {
+            if (bar.getChildAt(i) is ViewGroup) itemLike++
+        }
+        if (itemLike >= 2) return bar
+        return null
+    }
+
+    private fun selectedItemId(bar: ViewGroup): Int {
+        return runCatching {
+            val method = ReflectionUtils.getAdditionalInstanceField(bar, KEY_SEL_METHOD) as? Method
+                ?: bar.javaClass.getMethod("getSelectedItemId").also {
+                    ReflectionUtils.setAdditionalInstanceField(bar, KEY_SEL_METHOD, it)
+                }
+            (method.invoke(bar) as? Int) ?: 0
+        }.getOrDefault(0)
+    }
+
+    private fun syncLens(bar: ViewGroup, menu: ViewGroup, lens: View) {
+        if (!bar.isAttachedToWindow || !lens.isAttachedToWindow) return
+        if (lens.visibility != View.VISIBLE) lens.visibility = View.VISIBLE
+
+        val inset = Utils.dipToPixels(LENS_INSET_DP)
+        val items = (1 until menu.childCount).mapNotNull { index ->
+            (menu.getChildAt(index) as? View)?.takeIf { it.visibility == View.VISIBLE }
+        }
+        if (items.isEmpty()) return
+
+        val reference = items[0]
+        val targetWidth = (reference.width - Utils.dipToPixels(LENS_ITEM_INSET_DP) * 2)
+            .coerceAtLeast(Utils.dipToPixels(48))
+        val targetHeight = (reference.height - Utils.dipToPixels(LENS_ITEM_INSET_DP) * 2)
+            .coerceIn(Utils.dipToPixels(LENS_MIN_H_DP), Utils.dipToPixels(LENS_MAX_H_DP))
+        val params = lens.layoutParams
+        if (params != null && (params.width != targetWidth + inset * 2
+                    || params.height != targetHeight + inset * 2)
+        ) {
+            params.width = targetWidth + inset * 2
+            params.height = targetHeight + inset * 2
+            lens.layoutParams = params
+        }
+
+        val selectedId = selectedItemId(bar)
+        val target = (if (selectedId != 0) items.firstOrNull { it.id == selectedId } else null)
+            ?: items.firstOrNull { it.isSelected }
+            ?: return
+
+        val x = target.left + target.width / 2f - lens.width / 2f
+        val placed = ReflectionUtils.getAdditionalInstanceField(lens, KEY_LENS_PLACED) as? Boolean ?: false
+        if (!placed) {
+            ReflectionUtils.setAdditionalInstanceField(lens, KEY_LENS_PLACED, true)
+            lens.translationX = x
+            lens.alpha = 0f
+            lens.animate().alpha(1f).setDuration(220L).start()
             return
         }
 
+        val current = lens.translationX
+        if (Math.abs(x - current) <= 2f) return
+
+        (ReflectionUtils.getAdditionalInstanceField(lens, KEY_LENS_ANIM) as? ValueAnimator)?.cancel()
+        val anim = ValueAnimator.ofFloat(current, x).apply {
+            duration = LENS_SLIDE_MS
+            interpolator = DecelerateInterpolator(1.8f)
+            addUpdateListener {
+                lens.translationX = it.animatedValue as Float
+                val pulse = Math.sin(Math.PI * it.animatedFraction).toFloat()
+                lens.scaleX = 1f + 0.09f * pulse
+                lens.scaleY = 1f + 0.07f * pulse
+            }
+        }
+        ReflectionUtils.setAdditionalInstanceField(lens, KEY_LENS_ANIM, anim)
+        anim.start()
+    }
+
+    // ------------------------------------------------------------------
+    // FABs: same glass treatment as the search button in the photo.
+    // ------------------------------------------------------------------
+
+    private fun styleFabGlass(fab: View, lightTheme: Boolean) {
+        if (ReflectionUtils.getAdditionalInstanceField(fab, KEY_FAB_GLASS) != null) return
+        ReflectionUtils.setAdditionalInstanceField(fab, KEY_FAB_GLASS, true)
+        val drawable = GlassLensDrawable(lightTheme)
+        drawable.insetPx = Utils.dipToPixels(4f).toFloat()
+        drawable.rimWidthPx = Utils.dipToPixels(2f).toFloat()
+        drawable.ringWidthPx = Utils.dipToPixels(2f).toFloat()
+        drawable.fringeWidthPx = Utils.dipToPixels(1.5f).toFloat()
+        drawable.glowWidthPx = Utils.dipToPixels(6f).toFloat()
+        drawable.rainbowEnabled = xprefs.getBoolean(PREF_RAINBOW, true)
+        drawable.rainbowIntensity =
+            (xprefs.getInt(PREF_RAINBOW_INTENSITY, 50) / 100f).coerceIn(0.1f, 1f)
+        fab.background = drawable
+        fab.outlineProvider = ViewOutlineProvider.BACKGROUND
+    }
+
+    private fun positionFabsAboveBar(rootView: ViewGroup, container: ViewGroup) {
+        val barHeight = container.height
+        if (barHeight <= 0) {
+            container.postDelayed({ positionFabsAboveBar(rootView, container) }, RETRY_DELAY_MS)
+            return
+        }
+
+        val lightTheme =
+            (ReflectionUtils.getAdditionalInstanceField(rootView, KEY_BAR_LIGHT) as? Boolean)
+                ?: isLightColor(resolveBarColor(container))
         val offset = -(barHeight + Utils.dipToPixels(FAB_GAP_DP)).toFloat()
         for (name in FAB_RESOURCE_NAMES) {
             val id = Utils.getID(name, "id")
             if (id <= 0) continue
             rootView.findViewById<View>(id)?.let { fab ->
                 fab.translationY = offset
+                styleFabGlass(fab, lightTheme)
                 bringToFrontIfNeeded(fab)
             }
         }
@@ -291,13 +481,17 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         val bottomNav = fab.rootView.findViewById<View>(bottomNavId) ?: return
         val container = bottomNav.parent as? ViewGroup ?: return
         if (container.parent !is FrameLayout) return
+        val lightTheme =
+            (ReflectionUtils.getAdditionalInstanceField(bottomNav, KEY_BAR_LIGHT) as? Boolean)
+                ?: isLightColor(resolveBarColor(bottomNav as? ViewGroup ?: container))
+        styleFabGlass(fab, lightTheme)
         positionFab(fab, container)
     }
 
     private fun positionFab(fab: View, container: ViewGroup) {
         val barHeight = container.height
         if (barHeight <= 0) {
-            container.postDelayed({ positionFab(fab, container) }, 100L)
+            container.postDelayed({ positionFab(fab, container) }, RETRY_DELAY_MS)
             return
         }
 
@@ -311,7 +505,7 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
     }
 
     private fun resolveBarColor(bar: ViewGroup): Int {
-        val currentBg = bar.background
+        val currentBg: Drawable? = bar.background
         if (currentBg is ColorDrawable) {
             return currentBg.color
         }

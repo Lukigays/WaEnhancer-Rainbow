@@ -1,4 +1,7 @@
 [NEW]
+* Floating Bottom Bar now has a full iOS "Liquid Glass" look: plain dark frosted glass bar, plus a floating selection lens with an iridescent rainbow edge and glow that slides and pulses between tabs when you switch them; FABs get the same circular glass treatment (Customization > Home screen > Rainbow Liquid Glass, with an intensity slider)
+
+[NEW]
 * Added support for WhatsApp and WhatsApp Business 2.26.45.xx
 * Custom Privacy now uses a dropdown for each option (Default, Enabled, Disabled), showing the global state. Contacts are removed from the list when every option follows the global setting
 * Locked contacts are now hidden from the calls history, contact picker lists, status updates and status playback

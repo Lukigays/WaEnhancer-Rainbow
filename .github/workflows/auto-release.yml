@@ -1,0 +1,77 @@
+name: Build & Auto Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-release:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: set up JDK
+        uses: actions/setup-java@v5.6.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle*
+            **/gradle-wrapper.properties
+            gradle/libs.versions.toml
+            **/gradle.properties
+
+      - name: Write signing key (falls back to debug signing if no secrets)
+        env:
+          KEY_STORE: ${{ secrets.KEY_STORE }}
+        run: |
+          if [ ! -z "$KEY_STORE" ]; then
+            echo androidStorePassword='${{ secrets.KEY_STORE_PASSWORD }}' >> gradle.properties
+            echo androidKeyAlias='${{ secrets.ALIAS }}' >> gradle.properties
+            echo androidKeyPassword='${{ secrets.KEY_PASSWORD }}' >> gradle.properties
+            echo androidStoreFile='key.jks' >> gradle.properties
+            echo "$KEY_STORE" | base64 --decode > key.jks
+          else
+            echo "KEY_STORE secret not set -> APK will be signed with the debug key"
+          fi
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build WhatsApp Release
+        run: ./gradlew assembleWhatsappRelease
+
+      - name: Prepare release tag
+        id: prep
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[0-9][^ "]*' app/build.gradle.kts | head -n 1)
+          TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "title=WaEnhancer $TAG — Rainbow Liquid Glass" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prep.outputs.tag }}
+          name: ${{ steps.prep.outputs.title }}
+          body_path: changelog.txt
+          files: app/build/outputs/apk/whatsapp/release/WaEnhancer*.apk
+          make_latest: true
+
+      - name: Upload APK artifact (backup)
+        uses: actions/upload-artifact@v7
+        with:
+          name: WaEnhancer-APK
+          path: app/build/outputs/apk/whatsapp/release/WaEnhancer*.apk
+
+      - name: Upload Proguard mapping
+        uses: actions/upload-artifact@v7
+        with:
+          name: WaEnhancer-mapping
+          path: app/build/outputs/mapping/whatsappRelease/mapping.txt

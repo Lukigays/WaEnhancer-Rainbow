@@ -199,6 +199,22 @@
             app:title="@string/floating_bottom_bar_radius" />
 
         <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="true"
+            app:dependency="floating_bottom_bar"
+            app:key="floating_bottom_bar_rainbow"
+            app:summary="@string/floating_bottom_bar_rainbow_sum"
+            app:title="@string/floating_bottom_bar_rainbow" />
+
+        <SeekBarPreference
+            android:defaultValue="50"
+            android:max="100"
+            app:dependency="floating_bottom_bar_rainbow"
+            app:key="floating_bottom_bar_rainbow_intensity"
+            app:min="10"
+            app:showSeekBarValue="true"
+            app:title="@string/floating_bottom_bar_rainbow_intensity" />
+
+        <rikka.material.preference.MaterialSwitchPreference
             app:key="native_floating_navigation"
             app:summary="@string/native_floating_navigation_sum"
             app:title="@string/native_floating_navigation" />

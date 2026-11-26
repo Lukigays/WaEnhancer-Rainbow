@@ -179,6 +179,10 @@
     <string name="floating_bottom_bar_sum">Enable iOS-style floating bottom navigation bar</string>
     <string name="floating_bottom_bar_radius">Bottom Bar Corner Radius</string>
     <string name="floating_bottom_bar_radius_sum">Adjust the border radius of the floating bottom bar</string>
+    <string name="floating_bottom_bar_rainbow">Rainbow Liquid Glass</string>
+    <string name="floating_bottom_bar_rainbow_sum">iPhone-style liquid glass: dark frosted bar with a floating selection lens that slides between tabs with an iridescent rainbow edge</string>
+    <string name="floating_bottom_bar_rainbow_intensity">Rainbow Intensity</string>
+    <string name="floating_bottom_bar_rainbow_intensity_sum">Adjust the strength of the rainbow fringe and glow on the selection lens</string>
     <string name="disable_swipe_up_in_group">Disable swipe up gesture in groups</string>
     <string name="disable_swipe_up_in_group_sum">Disables the swipe up gesture in group chats</string>
     <string name="selection_of_call_type">Enable selection of call type</string>
