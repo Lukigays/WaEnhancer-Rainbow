@@ -1,31 +1,43 @@
 package com.wmods.wppenhacer.xposed.features.customization
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.SweepGradient
 import android.graphics.drawable.Drawable
-import android.view.animation.LinearInterpolator
+import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import kotlin.math.min
 
 /**
- * iOS 26 "Liquid Glass" look, split in two layers like the iPhone photo:
+ * iOS 26 "Liquid Glass" look, exactly like the iPhone photo:
  *
  *  - [LiquidGlassBarDrawable]: the navigation bar itself. Plain dark frosted
  *    glass with a soft specular sheen and a faint rim. No rainbow here.
- *  - [GlassLensDrawable]: the floating selection lens that slides over the
- *    active tab. Clear glass with bright top/bottom rims, a dark inner ring
- *    and an iridescent rainbow fringe + glow (chromatic dispersion).
+ *  - [GlassLensView]: the floating selection lens that slides over the active
+ *    tab. It MAGNIFIES the real content beneath it (real refraction, drawn by
+ *    re-rendering the bar into a bitmap and drawing it back scaled up, clipped
+ *    to the lens), bulges out of the bar silhouette, carries a thick dark
+ *    inner ring, bright top/bottom rims and a subtle iridescent chromatic
+ *    fringe with tiny color glints - like light dispersing on a glass edge.
  */
 
 class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, cornerRadiusPx: Float) :
@@ -33,6 +45,9 @@ class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, co
 
     var cornerRadiusPx: Float = cornerRadiusPx
         private set
+
+    // Multiplier on the white rim alpha; raised for round FAB buttons.
+    var rimStrength = 1f
 
     var baseColor: Int = baseColor
         set(value) {
@@ -91,7 +106,11 @@ class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, co
         rimPaint.shader = null
         rimPaint.style = Paint.Style.STROKE
         rimPaint.strokeWidth = 2f
-        rimPaint.color = if (lightTheme) Color.argb(30, 0, 0, 0) else Color.argb(34, 255, 255, 255)
+        rimPaint.color = if (lightTheme) {
+            Color.argb((30 * rimStrength).toInt().coerceAtMost(255), 0, 0, 0)
+        } else {
+            Color.argb((34 * rimStrength).toInt().coerceAtMost(255), 255, 255, 255)
+        }
     }
 
     override fun draw(canvas: Canvas) {
@@ -135,211 +154,271 @@ class LiquidGlassBarDrawable(baseColor: Int, private val lightTheme: Boolean, co
     }
 }
 
-class GlassLensDrawable(private val lightTheme: Boolean) : Drawable() {
-
-    companion object {
-        // Iridescent stops, first == last so the SweepGradient wraps seamlessly.
-        private val RAINBOW = intArrayOf(
-            0xFFFF5A76.toInt(), // rose
-            0xFFFF9E45.toInt(), // amber
-            0xFFFFD84D.toInt(), // gold
-            0xFF7CE685.toInt(), // mint
-            0xFF41D8FF.toInt(), // cyan
-            0xFF5E82FF.toInt(), // azure
-            0xFFB45EFF.toInt(), // violet
-            0xFFFF5A76.toInt()  // wrap -> rose
-        )
-        private val RAINBOW_STOPS =
-            floatArrayOf(0f, 0.143f, 0.286f, 0.429f, 0.571f, 0.714f, 0.857f, 1f)
-        private const val ANIM_DURATION_MS = 9000L
-    }
+/**
+ * The magnifying selection lens. Re-renders the bar into an offscreen bitmap
+ * and draws it back magnified inside the capsule, so the tab content under
+ * the lens is really magnified like the iPhone Liquid Glass photo.
+ */
+class GlassLensView(context: Context) : View(context) {
 
     var rainbowEnabled = true
-    var rainbowIntensity = 0.55f
+    var rainbowIntensity = 0.5f
+    var magnification = 1.32f
 
-    // Extra space around the capsule so the glow is not clipped by view bounds.
-    var insetPx = 0f
-    var rimWidthPx = 2f
-    var ringWidthPx = 3f
-    var fringeWidthPx = 2f
-    var glowWidthPx = 8f
+    // Padding inside this view around the capsule, reserved for the outer glow.
+    var glowPadPx = 6f
+
+    private var bar: ViewGroup? = null
+
+    private val capsule = RectF()
+    private val innerRect = RectF()
+    private val capsulePath = Path()
+    private val innerPath = Path()
+    private val ringPath = Path()
+    private val drawMatrix = Matrix()
+    private val offsetMatrix = Matrix()
+
+    private var captureBitmap: Bitmap? = null
+    private var captureCanvas: Canvas? = null
+    private var lastCaptureAt = 0L
+    private var slideAnim: ValueAnimator? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val tintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val shimmerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val chromaPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val fringePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val depthPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private val capsule = RectF()
-    private val inner = RectF()
-    private val capsulePath = Path()
-    private val innerPath = Path()
-    private val rotationMatrix = Matrix()
-    private val translateMatrix = Matrix()
-
-    private var sweepShader: SweepGradient? = null
-    private var animator: ValueAnimator? = null
-    private var phase = 0f
-
-    override fun onBoundsChange(bounds: Rect) {
-        super.onBoundsChange(bounds)
-        sweepShader = null
-    }
-
-    private fun ensureShader(): SweepGradient? {
-        if (bounds.isEmpty) return null
-        val cx = bounds.exactCenterX()
-        val cy = bounds.exactCenterY()
-        var shader = sweepShader
-        if (shader == null) {
-            shader = SweepGradient(cx, cy, RAINBOW, RAINBOW_STOPS)
-            sweepShader = shader
-        }
-        rotationMatrix.setRotate(phase * 360f, cx, cy)
-        shader.setLocalMatrix(rotationMatrix)
-        return shader
-    }
-
-    override fun draw(canvas: Canvas) {
-        val b = bounds
-        if (b.isEmpty) return
-        capsule.set(
-            b.left + insetPx, b.top + insetPx, b.right - insetPx, b.bottom - insetPx
+    private val redMatrix = ColorMatrix(
+        floatArrayOf(
+            1f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
         )
+    )
+    private val blueMatrix = ColorMatrix(
+        floatArrayOf(
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 1f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        )
+    )
+
+    init {
+        chromaPaint.colorFilter = ColorMatrixColorFilter(redMatrix)
+    }
+
+    fun bindBar(target: ViewGroup) {
+        bar = target
+    }
+
+    /** Re-renders the bar content into the offscreen bitmap (throttled). */
+    fun requestCapture(force: Boolean) {
+        val source = bar ?: return
+        val w = source.width
+        val h = source.height
+        if (w <= 0 || h <= 0) return
+        val now = SystemClock.uptimeMillis()
+        if (!force && now - lastCaptureAt < CAPTURE_THROTTLE_MS) return
+        lastCaptureAt = now
+        var bmp = captureBitmap
+        if (bmp == null || bmp.width != w || bmp.height != h || bmp.isRecycled) {
+            if (bmp != null && !bmp.isRecycled) bmp.recycle()
+            bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            captureBitmap = bmp
+            captureCanvas = Canvas(bmp)
+        }
+        val canvas = captureCanvas ?: return
+        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        source.draw(canvas)
+        invalidate()
+    }
+
+    /** Slides the lens so its capsule centers on (centerX, centerY) in parent coords. */
+    fun slideTo(centerX: Float, centerY: Float, animated: Boolean) {
+        translationY = centerY - height / 2f
+        val targetX = centerX - width / 2f
+        if (!animated || width == 0) {
+            slideAnim?.cancel()
+            translationX = targetX
+            scaleX = 1f
+            scaleY = 1f
+            requestCapture(false)
+            return
+        }
+        requestCapture(true)
+        slideAnim?.cancel()
+        val anim = ValueAnimator.ofFloat(translationX, targetX).apply {
+            duration = SLIDE_DURATION_MS
+            interpolator = DecelerateInterpolator(1.8f)
+            addUpdateListener {
+                translationX = it.animatedValue as Float
+                val pulse = Math.sin(Math.PI * it.animatedFraction).toFloat()
+                scaleX = 1f + 0.10f * pulse
+                scaleY = 1f + 0.08f * pulse
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    scaleX = 1f
+                    scaleY = 1f
+                    requestCapture(true)
+                }
+            })
+        }
+        slideAnim = anim
+        anim.start()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width
+        val h = height
+        if (w <= 0 || h <= 0) return
+        capsule.set(glowPadPx, glowPadPx, w - glowPadPx, h - glowPadPx)
         if (capsule.isEmpty) return
         val radius = capsule.height() / 2f
         capsulePath.reset()
         capsulePath.addRoundRect(capsule, radius, radius, Path.Direction.CW)
 
-        // 1. Iridescent glow bleeding outside the capsule.
-        val shader = if (rainbowEnabled) ensureShader() ?: return else null
-        if (shader != null) {
-            glowPaint.shader = shader
-            glowPaint.style = Paint.Style.STROKE
-            glowPaint.strokeWidth = glowWidthPx
-            glowPaint.alpha = (26 + rainbowIntensity * 54).toInt()
+        val intensity = rainbowIntensity.coerceIn(0f, 1f)
+
+        // Soft outer glow / ambient shadow around the capsule.
+        glowPaint.style = Paint.Style.STROKE
+        glowPaint.shader = null
+        glowPaint.color = Color.WHITE
+        glowPaint.alpha = 16
+        glowPaint.strokeWidth = glowPadPx * 1.4f
+        canvas.drawPath(capsulePath, glowPaint)
+        glowPaint.alpha = 22
+        glowPaint.strokeWidth = glowPadPx * 0.7f
+        canvas.drawPath(capsulePath, glowPaint)
+        if (rainbowEnabled) {
+            glowPaint.color = Color.argb((10 + intensity * 22).toInt(), 130, 200, 255)
+            glowPaint.strokeWidth = glowPadPx
             canvas.drawPath(capsulePath, glowPaint)
         }
 
-        // Clip everything else to the capsule.
+        // Everything else stays inside the capsule.
         val save = canvas.save()
         canvas.clipPath(capsulePath)
 
-        // 2. Clear glass fill.
-        fillPaint.color = if (lightTheme) Color.argb(38, 255, 255, 255) else Color.argb(20, 255, 255, 255)
+        // 1. Base glass tint (visible where the lens bulges past the bar).
+        fillPaint.color = Color.argb(24, 255, 255, 255)
         canvas.drawPaint(fillPaint)
 
-        // 3. Subtle iridescent tint inside the glass.
-        if (shader != null) {
-            tintPaint.shader = shader
-            tintPaint.alpha = (rainbowIntensity * 24).toInt()
-            canvas.drawPaint(tintPaint)
+        // 2. Magnified real content of the bar beneath the lens.
+        val bmp = captureBitmap
+        if (bmp != null && !bmp.isRecycled) {
+            drawMatrix.reset()
+            val cx = capsule.centerX()
+            val cy = capsule.centerY()
+            drawMatrix.postScale(magnification, magnification, cx, cy)
+            drawMatrix.postTranslate(0f, 0f)
+            canvas.drawBitmap(bmp, drawMatrix, bitmapPaint)
+
+            // 3. Chromatic dispersion on the edge: red/blue split passes.
+            innerRect.set(capsule)
+            innerRect.inset(2.5f, 2.5f)
+            innerPath.reset()
+            innerPath.addRoundRect(innerRect, innerRect.height() / 2f, innerRect.height() / 2f, Path.Direction.CW)
+            ringPath.reset()
+            ringPath.op(capsulePath, innerPath, Path.Op.DIFFERENCE)
+            val ringSave = canvas.save()
+            canvas.clipPath(ringPath)
+            val ca = 0.9f + intensity * 1.2f
+            chromaPaint.colorFilter = ColorMatrixColorFilter(redMatrix)
+            chromaPaint.alpha = (46 + intensity * 46).toInt()
+            offsetMatrix.set(drawMatrix)
+            offsetMatrix.postTranslate(-ca, 0f)
+            canvas.drawBitmap(bmp, offsetMatrix, chromaPaint)
+            chromaPaint.colorFilter = ColorMatrixColorFilter(blueMatrix)
+            offsetMatrix.set(drawMatrix)
+            offsetMatrix.postTranslate(ca, 0f)
+            canvas.drawBitmap(bmp, offsetMatrix, chromaPaint)
+            canvas.restoreToCount(ringSave)
         }
 
-        // 4. Specular sheen on the top of the lens.
-        sheenPaint.shader = LinearGradient(
-            0f, capsule.top, 0f, capsule.top + capsule.height() * 0.45f,
-            Color.argb(70, 255, 255, 255),
+        // 4. Depth: darker towards the top inside the glass.
+        depthPaint.shader = LinearGradient(
+            0f, capsule.top, 0f, capsule.top + capsule.height() * 0.38f,
+            Color.argb(58, 0, 0, 0),
             Color.TRANSPARENT,
             Shader.TileMode.CLAMP
         )
-        canvas.drawPaint(sheenPaint)
+        canvas.drawPaint(depthPaint)
 
-        // 5. Moving shimmer band.
-        if (shader != null) {
-            val travel = capsule.width() * 1.45f
-            translateMatrix.setTranslate(
-                -capsule.width() * 0.45f + travel * (phase * 1.618f % 1f), 0f
-            )
-            shimmerPaint.alpha = (26 + rainbowIntensity * 30).toInt()
-            shimmerPaint.shader = LinearGradient(
-                0f, 0f, capsule.width() * 0.45f, 0f,
-                intArrayOf(Color.TRANSPARENT, Color.argb(150, 255, 255, 255), Color.TRANSPARENT),
-                floatArrayOf(0f, 0.5f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            shimmerPaint.shader.setLocalMatrix(translateMatrix)
-            canvas.drawPaint(shimmerPaint)
-        }
-        canvas.restoreToCount(save)
+        // 5. Thick dark inner ring, the "thick glass" edge.
+        ringPaint.style = Paint.Style.STROKE
+        ringPaint.shader = null
+        ringPaint.color = Color.argb(95, 4, 7, 10)
+        ringPaint.strokeWidth = 9f
+        canvas.drawPath(capsulePath, ringPaint)
+        ringPaint.color = Color.argb(140, 0, 0, 0)
+        ringPaint.strokeWidth = 3.5f
+        canvas.drawPath(capsulePath, ringPaint)
 
-        // 6. Dark inner ring, the "thick glass" edge right inside the bright rim.
-        inner.set(capsule)
-        inner.inset(rimWidthPx * 1.6f, rimWidthPx * 1.6f)
-        if (!inner.isEmpty) {
-            innerPath.reset()
-            innerPath.addRoundRect(inner, inner.height() / 2f, inner.height() / 2f, Path.Direction.CW)
-            ringPaint.shader = null
-            ringPaint.style = Paint.Style.STROKE
-            ringPaint.strokeWidth = ringWidthPx
-            ringPaint.color = if (lightTheme) Color.argb(80, 0, 0, 0) else Color.argb(110, 0, 0, 0)
-            canvas.drawPath(innerPath, ringPaint)
-        }
-
-        // 7. Rainbow chromatic fringe on the capsule edge.
-        if (shader != null) {
-            fringePaint.shader = shader
-            fringePaint.style = Paint.Style.STROKE
-            fringePaint.strokeWidth = fringeWidthPx
-            fringePaint.alpha = (80 + rainbowIntensity * 120).toInt()
-            canvas.drawPath(capsulePath, fringePaint)
-        } else {
-            fringePaint.shader = null
-            fringePaint.style = Paint.Style.STROKE
-            fringePaint.strokeWidth = fringeWidthPx
-            fringePaint.color = if (lightTheme) Color.argb(70, 0, 0, 0) else Color.argb(80, 255, 255, 255)
-            canvas.drawPath(capsulePath, fringePaint)
-        }
-
-        // 8. Bright top / bottom rims, like light catching the glass edge.
+        // 6. Bright top/bottom rims where light catches the glass edge.
         rimPaint.shader = LinearGradient(
             0f, capsule.top, 0f, capsule.bottom,
             intArrayOf(
-                Color.argb(160, 255, 255, 255),
+                Color.argb(175, 255, 255, 255),
                 Color.TRANSPARENT,
                 Color.TRANSPARENT,
-                Color.argb(110, 255, 255, 255)
+                Color.argb(125, 255, 255, 255)
             ),
             floatArrayOf(0f, 0.30f, 0.70f, 1f),
             Shader.TileMode.CLAMP
         )
         rimPaint.style = Paint.Style.STROKE
-        rimPaint.strokeWidth = rimWidthPx
+        rimPaint.strokeWidth = 2.2f
         canvas.drawPath(capsulePath, rimPaint)
-    }
 
-    override fun getOutline(outline: Outline) {
-        val r = min(bounds.width(), bounds.height()) / 2f
-        outline.setRoundRect(bounds, r)
-    }
+        // 7. Iridescent chromatic fringe: mint on top, pink/violet at the bottom.
+        if (rainbowEnabled) {
+            fringePaint.shader = LinearGradient(
+                0f, capsule.top, 0f, capsule.bottom,
+                intArrayOf(
+                    Color.argb((95 + intensity * 85).toInt(), 120, 235, 195),
+                    Color.TRANSPARENT,
+                    Color.TRANSPARENT,
+                    Color.argb((85 + intensity * 80).toInt(), 245, 130, 190)
+                ),
+                floatArrayOf(0f, 0.28f, 0.72f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            fringePaint.style = Paint.Style.STROKE
+            fringePaint.strokeWidth = 2f
+            canvas.drawPath(capsulePath, fringePaint)
 
-    override fun setAlpha(alpha: Int) = Unit
-
-    override fun setColorFilter(colorFilter: ColorFilter?) = Unit
-
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
-
-    override fun setVisible(visible: Boolean, restart: Boolean): Boolean {
-        val changed = super.setVisible(visible, restart)
-        if (visible) startAnimation() else animator?.cancel()
-        return changed
-    }
-
-    private fun startAnimation() {
-        val anim = animator ?: ValueAnimator.ofFloat(0f, 1f).also { created ->
-            created.duration = ANIM_DURATION_MS
-            created.interpolator = LinearInterpolator()
-            created.repeatCount = ValueAnimator.INFINITE
-            created.addUpdateListener {
-                phase = it.animatedValue as Float
-                if (isVisible) invalidateSelf()
-            }
-            animator = created
+            // 8. Two small color glints on the edge (light dispersion spots).
+            glintPaint.style = Paint.Style.STROKE
+            glintPaint.shader = null
+            glintPaint.strokeWidth = 2.6f
+            glintPaint.color = Color.argb((95 + intensity * 75).toInt(), 150, 240, 210)
+            canvas.drawArc(capsule, 292f, 30f, false, glintPaint)
+            glintPaint.color = Color.argb((85 + intensity * 70).toInt(), 255, 140, 180)
+            canvas.drawArc(capsule, 112f, 30f, false, glintPaint)
         }
-        if (!anim.isRunning) anim.start()
+
+        canvas.restoreToCount(save)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        slideAnim?.cancel()
+        captureBitmap?.recycle()
+        captureBitmap = null
+        captureCanvas = null
+    }
+
+    private companion object {
+        private const val SLIDE_DURATION_MS = 320L
+        private const val CAPTURE_THROTTLE_MS = 90L
     }
 }

@@ -1,5 +1,5 @@
 [NEW]
-* Floating Bottom Bar now has a full iOS "Liquid Glass" look: plain dark frosted glass bar, plus a floating selection lens with an iridescent rainbow edge and glow that slides and pulses between tabs when you switch them; FABs get the same circular glass treatment (Customization > Home screen > Rainbow Liquid Glass, with an intensity slider)
+* Floating Bottom Bar now has the full iOS "Liquid Glass" look from the iPhone photo: plain dark frosted glass bar, plus a floating selection lens that really MAGNIFIES the tab content beneath it (refraction), bulges out of the bar, slides and pulses between tabs, with a thick dark inner ring, bright rims and a subtle iridescent chromatic fringe; FABs become plain dark glass circles with a bright rim (Customization > Home screen > Rainbow Liquid Glass, with an intensity slider)
 
 [NEW]
 * Added support for WhatsApp and WhatsApp Business 2.26.45.xx
