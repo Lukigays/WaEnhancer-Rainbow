@@ -134,7 +134,7 @@ class IOSBubbleDrawable(
 
     override fun getIntrinsicHeight(): Int = original.intrinsicHeight
 
-    override fun setState(state: IntArray?): Boolean {
+    override fun setState(state: IntArray): Boolean {
         val changed = super.setState(state)
         original.state = state
         return changed
