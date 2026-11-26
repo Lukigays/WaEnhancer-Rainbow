@@ -1,6 +1,7 @@
 package com.wmods.wppenhacer.xposed.core
 
 import com.wmods.wppenhacer.xposed.features.customization.BubbleColors
+import com.wmods.wppenhacer.xposed.features.customization.IOSPopupMenu
 import com.wmods.wppenhacer.xposed.features.customization.IOSStyle
 import com.wmods.wppenhacer.xposed.features.customization.ContactVerify
 import com.wmods.wppenhacer.xposed.features.customization.CustomThemeV2
@@ -86,6 +87,7 @@ internal object FeatureRegistry {
         SeenTick::class.java,
         BubbleColors::class.java,
         IOSStyle::class.java,
+        IOSPopupMenu::class.java,
         CallPrivacy::class.java,
         ActivityController::class.java,
         CustomThemeV2::class.java,

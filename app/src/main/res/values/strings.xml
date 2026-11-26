@@ -62,6 +62,8 @@
     <string name="ios_style_sum">Rounded iOS-style chat bubbles without tails: outgoing teal green / incoming dark gray (follows system dark or light mode)</string>
     <string name="ios_layout">iOS Home Layout</string>
     <string name="ios_layout_sum">iOS-style home polish: fully rounded pill search bar, roomier chat rows, header blended into the list (restart WhatsApp after toggling)</string>
+    <string name="ios_popup_menu">iOS Popup Menu</string>
+    <string name="ios_popup_menu_sum">Replace the top selection toolbar on message long-press with a floating iOS-style menu below the reaction bar (Star / Reply / Forward / ... with icons, Delete in red)</string>
     <string name="loading">Loading</string>
     <string name="imagequality">HD Quality Images</string>
     <string name="imagequality_sum">Send images in HD quality, by default</string>

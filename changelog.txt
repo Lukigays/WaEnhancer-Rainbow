@@ -4,6 +4,7 @@ Updates now follow THIS repository only: https://github.com/Lukigays/WaEnhancer-
 [FIXED]
 * Liquid Glass lens: removed the idle grow/shrink pulse — the lens is now completely still when not being dragged, and only stretches while actually sliding to another tab
 [NEW]
+* New "iOS Popup Menu" toggle (on by default): message long-press now shows a floating iOS-style context menu attached below the reaction bar - rounded dark panel, label left / icon right, Delete in red - replacing the top selection toolbar; every action (Reply, Star, Forward, Copy, Pin, Report, Delete...) keeps working through the real menu
 * New "iOS Home Layout" toggle (Customization): rounded pill search bar, roomier chat rows and a header that blends into the list, like iOS WhatsApp (restart WhatsApp after toggling)
 
 [FIXED]

@@ -181,6 +181,12 @@
             app:key="ios_layout"
             app:summary="@string/ios_layout_sum"
             app:title="@string/ios_layout" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="true"
+            app:key="ios_popup_menu"
+            app:summary="@string/ios_popup_menu_sum"
+            app:title="@string/ios_popup_menu" />
     </PreferenceCategory>
 
     <PreferenceCategory
