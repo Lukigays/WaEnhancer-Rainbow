@@ -58,6 +58,8 @@
     <string name="showbio">Show Bio</string>
     <string name="bubble_left">Left Bubble</string>
     <string name="bubble_right">Right Bubble</string>
+    <string name="ios_style">iOS Chat Style</string>
+    <string name="ios_style_sum">Rounded iOS-style chat bubbles without tails: outgoing teal green / incoming dark gray (follows system dark or light mode)</string>
     <string name="loading">Loading</string>
     <string name="imagequality">HD Quality Images</string>
     <string name="imagequality_sum">Send images in HD quality, by default</string>

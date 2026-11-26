@@ -171,6 +171,11 @@
             app:key="bubble_right"
             app:summary="@string/default_color"
             app:title="@string/bubble_right" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:key="ios_style"
+            app:summary="@string/ios_style_sum"
+            app:title="@string/ios_style" />
     </PreferenceCategory>
 
     <PreferenceCategory
