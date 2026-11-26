@@ -27,7 +27,7 @@ jobs:
             gradle/libs.versions.toml
             **/gradle.properties
 
-      - name: Write signing key (falls back to debug signing if no secrets)
+      - name: Write signing key (falls back to committed keystore if no secrets)
         env:
           KEY_STORE: ${{ secrets.KEY_STORE }}
         run: |
@@ -38,8 +38,16 @@ jobs:
             echo androidStoreFile='key.jks' >> gradle.properties
             echo "$KEY_STORE" | base64 --decode > key.jks
           else
-            echo "KEY_STORE secret not set -> APK will be signed with the debug key"
+            echo "No KEY_STORE secret -> using the committed waenhancer-release.keystore (fixed signature, updates install over)"
           fi
+
+      - name: Bump versionCode per build (so APK updates install over, no uninstall needed)
+        run: |
+          BASE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -n 1)
+          NEW_CODE=$((BASE + GITHUB_RUN_NUMBER))
+          sed -i -E "s/versionCode = [0-9]+/versionCode = $NEW_CODE/" app/build.gradle.kts
+          echo "versionCode: $BASE -> $NEW_CODE"
+          grep "versionCode" app/build.gradle.kts
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

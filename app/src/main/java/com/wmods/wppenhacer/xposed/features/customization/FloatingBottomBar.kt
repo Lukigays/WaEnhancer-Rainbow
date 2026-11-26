@@ -6,7 +6,6 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -324,22 +323,8 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
             }
         }
 
-        // Instant reaction to presses on the tabs without swallowing the touch.
-        for (i in 0 until menu.childCount) {
-            val item = menu.getChildAt(i) ?: continue
-            item.setOnTouchListener { v, ev ->
-                when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> v.post {
-                        syncLens(rootView, container, bar, menu, lens, v)
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.postDelayed({
-                        syncLens(rootView, container, bar, menu, lens, null)
-                    }, 90L)
-                }
-                false
-            }
-        }
-
+        // Never sync on ACTION_DOWN: the lens must always SLIDE to the new tab,
+        // never teleport. The watcher + menu layout listener drive the slide.
         // Lightweight watcher so the lens never drifts out of place.
         bar.post(object : Runnable {
             override fun run() {
@@ -436,9 +421,12 @@ class FloatingBottomBar(loader: ClassLoader, preferences: SharedPreferences) :
         bar.getLocationInWindow(barLoc)
         val centerX = itemLoc[0] + target.width / 2f - rootLoc[0]
         val centerY = barLoc[1] + bar.height / 2f - rootLoc[1]
+        // Lens center in BAR coordinates: what the magnified glass samples.
+        val anchorX = itemLoc[0] + target.width / 2f - barLoc[0]
 
         val placed = ReflectionUtils.getAdditionalInstanceField(lens, KEY_LENS_PLACED) as? Boolean ?: false
-        lens.slideTo(centerX, centerY, placed && preferred == null)
+        // Once placed, every transition slides (never jumps).
+        lens.slideTo(centerX, centerY, anchorX, placed)
         if (!placed) {
             ReflectionUtils.setAdditionalInstanceField(lens, KEY_LENS_PLACED, true)
             lens.alpha = 0f

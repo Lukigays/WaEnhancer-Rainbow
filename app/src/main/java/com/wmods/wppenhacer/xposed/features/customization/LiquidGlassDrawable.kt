@@ -183,6 +183,10 @@ class GlassLensView(context: Context) : View(context) {
     private var lastCaptureAt = 0L
     private var slideAnim: ValueAnimator? = null
 
+    // Lens center in bar coordinates: what the magnified window samples.
+    private var anchorXInBar = 0f
+    private var anchorYInBar = 0f
+
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val chromaPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
@@ -238,11 +242,15 @@ class GlassLensView(context: Context) : View(context) {
         val canvas = captureCanvas ?: return
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         source.draw(canvas)
+        if (anchorXInBar <= 0f) anchorXInBar = w / 2f
+        if (anchorYInBar <= 0f) anchorYInBar = h / 2f
         invalidate()
     }
 
-    /** Slides the lens so its capsule centers on (centerX, centerY) in parent coords. */
-    fun slideTo(centerX: Float, centerY: Float, animated: Boolean) {
+    /** Slides the lens so its capsule centers on (centerX, centerY) in parent coords.
+     *  anchorXInBar = lens center in BAR coordinates: the magnified content scrolls
+     *  under the glass while the lens travels, exactly like iOS Liquid Glass. */
+    fun slideTo(centerX: Float, centerY: Float, anchorXInBar: Float, animated: Boolean) {
         translationY = centerY - height / 2f
         val targetX = centerX - width / 2f
         if (!animated || width == 0) {
@@ -250,24 +258,34 @@ class GlassLensView(context: Context) : View(context) {
             translationX = targetX
             scaleX = 1f
             scaleY = 1f
+            this.anchorXInBar = anchorXInBar
+            this.anchorYInBar = bar?.height?.div(2f) ?: anchorYInBar
             requestCapture(false)
             return
         }
         requestCapture(true)
         slideAnim?.cancel()
-        val anim = ValueAnimator.ofFloat(translationX, targetX).apply {
+        val startX = translationX
+        val startAnchor = this.anchorXInBar
+        val targetAnchor = anchorXInBar
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = SLIDE_DURATION_MS
             interpolator = DecelerateInterpolator(1.8f)
             addUpdateListener {
-                translationX = it.animatedValue as Float
-                val pulse = Math.sin(Math.PI * it.animatedFraction).toFloat()
+                val f = it.animatedValue as Float
+                translationX = startX + (targetX - startX) * f
+                this@GlassLensView.anchorXInBar = startAnchor + (targetAnchor - startAnchor) * f
+                // Stretch while travelling, settle when arriving (iOS jelly feel).
+                val pulse = Math.sin(Math.PI * f).toFloat()
                 scaleX = 1f + 0.10f * pulse
                 scaleY = 1f + 0.08f * pulse
+                invalidate()
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     scaleX = 1f
                     scaleY = 1f
+                    this@GlassLensView.anchorXInBar = targetAnchor
                     requestCapture(true)
                 }
             })
@@ -304,6 +322,19 @@ class GlassLensView(context: Context) : View(context) {
             canvas.drawPath(capsulePath, glowPaint)
         }
 
+        // Soft drop shadow under the lens (floating above the bar, like the photo).
+        shadowPaint.style = Paint.Style.STROKE
+        shadowPaint.shader = null
+        shadowPaint.color = Color.argb(55, 4, 8, 12)
+        shadowPaint.strokeWidth = 3.5f
+        canvas.save()
+        canvas.translate(0f, 2.5f)
+        canvas.drawPath(capsulePath, shadowPaint)
+        canvas.translate(0f, 2.5f)
+        shadowPaint.color = Color.argb(30, 4, 8, 12)
+        canvas.drawPath(capsulePath, shadowPaint)
+        canvas.restore()
+
         // Everything else stays inside the capsule.
         val save = canvas.save()
         canvas.clipPath(capsulePath)
@@ -312,15 +343,25 @@ class GlassLensView(context: Context) : View(context) {
         fillPaint.color = Color.argb(24, 255, 255, 255)
         canvas.drawPaint(fillPaint)
 
-        // 2. Magnified real content of the bar beneath the lens.
+        // 2. Magnified real content of the bar beneath the lens. The matrix maps the
+        //    bar pixel under the lens center to the capsule center, so the glass
+        //    always magnifies exactly what is beneath it — and the content scrolls
+        //    through the lens while it slides (anchorXInBar animates with the slide).
         val bmp = captureBitmap
         if (bmp != null && !bmp.isRecycled) {
+            val px = if (anchorXInBar > 0f) anchorXInBar else bmp.width / 2f
+            val py = if (anchorYInBar > 0f) anchorYInBar else bmp.height / 2f
             drawMatrix.reset()
-            val cx = capsule.centerX()
-            val cy = capsule.centerY()
-            drawMatrix.postScale(magnification, magnification, cx, cy)
-            drawMatrix.postTranslate(0f, 0f)
+            drawMatrix.postScale(magnification, magnification)
+            drawMatrix.postTranslate(
+                capsule.centerX() - magnification * px,
+                capsule.centerY() - magnification * py
+            )
             canvas.drawBitmap(bmp, drawMatrix, bitmapPaint)
+
+            // Frosted veil so the glass looks milky like the iOS photo.
+            fillPaint.color = Color.argb(10, 255, 255, 255)
+            canvas.drawPaint(fillPaint)
 
             // 3. Chromatic dispersion on the edge: red/blue split passes.
             innerRect.set(capsule)
