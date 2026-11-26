@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0
 
       - name: set up JDK
-        uses: actions/setup-java@v5.6.0
+        uses: actions/setup-java@v6.3.0
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -64,7 +64,7 @@ jobs:
           echo "title=WaEnhancer $TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
           name: ${{ steps.prep.outputs.title }}
