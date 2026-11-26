@@ -1,6 +1,11 @@
 WaEnhancer-Rainbow — fork of WaEnhancer (by Dev4Mod) maintained by Lukigays
 Updates now follow THIS repository only: https://github.com/Lukigays/WaEnhancer-Rainbow/releases/latest
 
+[FIXED]
+* iOS Chat Style: long-press on a message works again (the iOS bubble drawable now keeps the original padding that WhatsApp needs to anchor the context menu / reaction bar)
+* iOS Chat Style: removed the dark corner artifacts on media bubbles (the border drawable is now the same aligned rounded capsule)
+* Version number now increases with every build (1.6.7, 1.6.8, ...) and APK updates still install directly over previous builds
+
 [NEW — FORK FEATURES]
 * Liquid Glass floating bottom bar (iOS style): plain dark frosted glass bar, plus a neutral selection lens that really MAGNIFIES the tab content beneath it (refraction), follows your finger while you drag across the tab bar (no animation while dragging), then slides with a jelly stretch to settle on the selected tab; thick dark inner ring, bright rims, soft drop shadow — no rainbow, no colors
 * FABs restyled as plain dark glass circles with a bright rim (like the separate search button in the iOS dock photo)

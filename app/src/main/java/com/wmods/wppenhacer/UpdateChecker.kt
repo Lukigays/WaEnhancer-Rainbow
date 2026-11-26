@@ -15,9 +15,9 @@ import java.util.concurrent.TimeUnit
 /**
  * In-app update checker for this fork. It only follows THIS repository's
  * releases (Lukigays/WaEnhancer-Rainbow), never the upstream project.
- * Tags use the "v1.6.6-build.<N>" format produced by the auto-release
- * workflow, where <N> also matches the "1.6.6-build.<N>" versionName and the
- * bumped versionCode, so APK updates install over previous builds.
+ * Tags use the "v1.6.<N>" format produced by the auto-release workflow,
+ * where N also matches the versionName and the bumped versionCode, so APK
+ * updates install over previous builds.
  */
 class UpdateChecker(private val mActivity: Activity) : Runnable {
 
@@ -26,7 +26,7 @@ class UpdateChecker(private val mActivity: Activity) : Runnable {
             "https://api.github.com/repos/Lukigays/WaEnhancer-Rainbow/releases/latest"
         private const val RELEASES_PAGE =
             "https://github.com/Lukigays/WaEnhancer-Rainbow/releases/latest"
-        private val BUILD_NUMBER_REGEX = Regex("build\\.([0-9]+)")
+        private val LAST_NUMBER_REGEX = Regex("([0-9]+)(?!.*[0-9])")
         private val APK_ASSET_REGEX = Regex(".*\\.apk$", RegexOption.IGNORE_CASE)
 
         private val httpClient: OkHttpClient by lazy {
@@ -37,8 +37,10 @@ class UpdateChecker(private val mActivity: Activity) : Runnable {
                 .build()
         }
 
+        // Extracts the version number from any naming scheme:
+        // "v1.6.7" / "1.6.7" -> 7, "1.6.6-build.5" -> 5, "1.6.6 (abc123)" -> 6.
         fun parseBuildNumber(text: String?): Int {
-            return text?.let { BUILD_NUMBER_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 0
+            return text?.let { LAST_NUMBER_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 0
         }
     }
 

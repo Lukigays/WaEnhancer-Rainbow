@@ -537,7 +537,7 @@ class HomeFragment : BaseFragment() {
                         return@use
                     }
 
-                    // Tags are "v1.6.6-build.<N>"; versionName mirrors "1.6.6-build.<N>".
+                    // Tags are "v1.6.<N>"; versionName mirrors "1.6.<N>".
                     val latestBuild = UpdateChecker.parseBuildNumber(tagName)
                     val currentBuild = UpdateChecker.parseBuildNumber(BuildConfig.VERSION_NAME)
                     val isNewVersion = latestBuild > 0 && latestBuild > currentBuild

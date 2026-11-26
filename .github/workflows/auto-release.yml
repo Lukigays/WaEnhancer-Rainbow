@@ -45,9 +45,10 @@ jobs:
         run: |
           BASE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -n 1)
           NEW_CODE=$((BASE + GITHUB_RUN_NUMBER))
+          NEW_NAME="1.6.$((GITHUB_RUN_NUMBER + 1))"
           sed -i -E "s/versionCode = [0-9]+/versionCode = $NEW_CODE/" app/build.gradle.kts
-          sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"1.6.6-build.$GITHUB_RUN_NUMBER\"/" app/build.gradle.kts
-          echo "versionCode: $BASE -> $NEW_CODE | versionName -> 1.6.6-build.$GITHUB_RUN_NUMBER"
+          sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"$NEW_NAME\"/" app/build.gradle.kts
+          echo "versionCode: $BASE -> $NEW_CODE | versionName -> $NEW_NAME"
           grep -E "versionCode|versionName" app/build.gradle.kts
 
       - name: Grant execute permission for gradlew
@@ -59,7 +60,7 @@ jobs:
       - name: Prepare release tag
         id: prep
         run: |
-          TAG="v1.6.6-build.${GITHUB_RUN_NUMBER}"
+          TAG="v1.6.$((GITHUB_RUN_NUMBER + 1))"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "title=WaEnhancer $TAG" >> "$GITHUB_OUTPUT"
 
